@@ -104,10 +104,9 @@ class _ShuttleScreenState extends State<ShuttleScreen> {
                 final departure = item['departure'] ?? '';
                 final arrival = item['arrival'] ?? '';
                 final intermediate = item['intermediate_stop'] ?? '';
-                final stops = item['stops'] as List<dynamic>? ?? [];
+                final stops = item['stops'];
                 final note = item['note'] ?? '';
                 final day = item['day'] ?? '';
-
                 final isExpanded = _expandedIndex == index;
 
                 return Padding(
@@ -161,11 +160,17 @@ class _ShuttleScreenState extends State<ShuttleScreen> {
                                 if (arrivalTime.isNotEmpty) Text('도착시간: $arrivalTime', style: TextStyle(fontSize: 16)),
                                 if (intermediate.isNotEmpty) Text('경유정보: $intermediate', style: TextStyle(fontSize: 16)),
                                 Text('운행 요일: $day', style: TextStyle(fontSize: 16)),
-                                if (stops.isNotEmpty) ...[
+                                if (stops != null && stops is List && stops.isNotEmpty) ...[
                                   SizedBox(height: 8),
                                   Text('정차지점:', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
                                   ...stops.map((stop) {
-                                    return Text('- ${stop['location']} (${stop['time']})', style: TextStyle(fontSize: 15));
+                                    if (stop is Map<String, dynamic>) {
+                                      return Text('- ${stop['location']} (${stop['time']})', style: TextStyle(fontSize: 15));
+                                    } else if (stop is String) {
+                                      return Text('- $stop', style: TextStyle(fontSize: 15));
+                                    } else {
+                                      return SizedBox.shrink(); // 예외 처리
+                                    }
                                   }).toList(),
                                 ],
                                 if (note.isNotEmpty)

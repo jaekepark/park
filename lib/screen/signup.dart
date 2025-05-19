@@ -1,24 +1,78 @@
-import 'package:flutter/material.dart';
-import 'package:cloud_firestore/cloud_firestore.dart'; // Firebase Firestore 사용
-import 'package:firebase_auth/firebase_auth.dart'; // Firebase Authentication 사용
-import 'package:hackathon/screen/login.dart'; // LoginSignupScreen import
+import 'dart:io';
 
-class SignupScreen extends StatelessWidget {
+import 'package:flutter/material.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:hackathon/screen/login.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:firebase_storage/firebase_storage.dart';
+
+class SignupScreen extends StatefulWidget {
   const SignupScreen({Key? key}) : super(key: key);
 
   @override
-  Widget build(BuildContext context) {
-    // 컨트롤러 선언
-    TextEditingController nameController = TextEditingController();
-    TextEditingController emailController = TextEditingController();
-    TextEditingController passwordController = TextEditingController();
+  State<SignupScreen> createState() => _SignupScreenState();
+}
 
+class _SignupScreenState extends State<SignupScreen> {
+  final TextEditingController nameController = TextEditingController();
+  final TextEditingController emailController = TextEditingController();
+  final TextEditingController passwordController = TextEditingController();
+
+  XFile? _pickedImage;
+
+  // 이미지 선택 함수
+  Future<void> _pickImage() async {
+    final picker = ImagePicker();
+    final pickedFile = await picker.pickImage(source: ImageSource.gallery);
+    if (pickedFile != null) {
+      setState(() {
+        _pickedImage = pickedFile;
+      });
+    }
+  }
+
+  // 이미지 업로드 함수 (개선된 버전)
+  Future<String?> _uploadImage(String uid) async {
+    if (_pickedImage == null) return null;
+
+    try {
+      final storageRef = FirebaseStorage.instance
+          .ref()
+          .child('profile_images')
+          .child('$uid.jpg');
+
+      final uploadTask = await storageRef.putFile(File(_pickedImage!.path));
+
+      // 업로드 완료 후 다운로드 URL 받기
+      final downloadUrl = await uploadTask.ref.getDownloadURL();
+
+      print('프로필 사진 업로드 성공 URL: $downloadUrl');
+
+      return downloadUrl;
+    } catch (e) {
+      print('프로필 사진 업로드 실패: $e');
+      return null;
+    }
+  }
+
+  @override
+  void dispose() {
+    nameController.dispose();
+    emailController.dispose();
+    passwordController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
         title: const Text('회원가입'),
         centerTitle: true,
       ),
-      body: Padding(
+      body: SingleChildScrollView(
+        // 키보드 올라올 때 overflow 방지
         padding: const EdgeInsets.all(16.0),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -28,7 +82,24 @@ class SignupScreen extends StatelessWidget {
               style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 20),
-            // 이름 입력 필드
+
+            // 프로필 사진 선택 위젯
+            Center(
+              child: GestureDetector(
+                onTap: _pickImage,
+                child: CircleAvatar(
+                  radius: 50,
+                  backgroundImage: _pickedImage != null
+                      ? FileImage(File(_pickedImage!.path))
+                      : const AssetImage('asset/img/google_logo.png')
+                  as ImageProvider,
+                ),
+              ),
+            ),
+            const SizedBox(height: 20),
+            const Center(child: Text('프로필 사진 선택 (클릭)')),
+
+            const SizedBox(height: 30),
             TextField(
               controller: nameController,
               decoration: const InputDecoration(
@@ -37,7 +108,6 @@ class SignupScreen extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 20),
-            // 이메일 입력 필드
             TextField(
               controller: emailController,
               decoration: const InputDecoration(
@@ -47,7 +117,6 @@ class SignupScreen extends StatelessWidget {
               keyboardType: TextInputType.emailAddress,
             ),
             const SizedBox(height: 20),
-            // 비밀번호 입력 필드
             TextField(
               controller: passwordController,
               decoration: const InputDecoration(
@@ -57,13 +126,13 @@ class SignupScreen extends StatelessWidget {
               obscureText: true,
             ),
             const SizedBox(height: 30),
-            // 회원가입 완료 버튼
             Center(
               child: ElevatedButton(
                 onPressed: () async {
                   try {
-                    // Firebase Auth로 계정 생성
-                    UserCredential userCredential = await FirebaseAuth.instance
+                    // Firebase Auth 회원가입
+                    UserCredential userCredential =
+                    await FirebaseAuth.instance
                         .createUserWithEmailAndPassword(
                       email: emailController.text.trim(),
                       password: passwordController.text.trim(),
@@ -71,28 +140,27 @@ class SignupScreen extends StatelessWidget {
 
                     String uid = userCredential.user?.uid ?? '';
 
-                    // Firestore에 사용자 정보 저장
-                    await FirebaseFirestore.instance.collection('users').doc(uid).set({
+                    // 이미지 업로드 및 URL 받기
+                    String? profilePicUrl = await _uploadImage(uid);
+
+                    // Firestore에 유저 정보 저장
+                    await FirebaseFirestore.instance
+                        .collection('users')
+                        .doc(uid)
+                        .set({
                       'firebaseUserId': uid,
                       'name': nameController.text.trim(),
                       'email': emailController.text.trim(),
-                      // roles 필드 추가
-                      'roles': ["admin", "user"],  // 역할 리스트 추가
-                    }).then((_) {
-                      print('회원가입 정보 저장 완료');
-                    }).catchError((error) {
-                      print('Firestore 저장 실패: $error');
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(content: Text('Firestore에 정보 저장 실패: ${error.toString()}')),
-                      );
+                      'roles': ["admin", "user"],
+                      'profilePicUrl': profilePicUrl ?? '',
+                      'createdAt': FieldValue.serverTimestamp(),
                     });
 
-                    // 로그인 화면으로 이동
+                    // 회원가입 완료 후 로그인 화면으로 이동
                     Navigator.pushReplacement(
                       context,
                       MaterialPageRoute(
-                        builder: (context) => const LoginSignupScreen(),
-                      ),
+                          builder: (context) => const LoginSignupScreen()),
                     );
                   } catch (e) {
                     print('회원가입 실패: $e');
